@@ -7,3 +7,5 @@ if not os.path.exists(MODEL_PATH):
 
 
 drive linkinden modeli indirdikten sonra kodun başına import ekleyip modeli çekmesi lazım
+
+https://drive.google.com/file/d/1t2gsakNOWdH2QQt1FG4eXFV6NEtmyc4w/view?usp=sharing
