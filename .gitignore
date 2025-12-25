@@ -1,0 +1,20 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual env
+venv/
+.venv/
+
+# Datasets & processed data
+train_processed/
+valid_processed/
+test_processed/
+tests/
+
+# Model
+tic_tac_toe_cnn.h5
+
+# Temp / misc
+*.xml
+*.jpeg
