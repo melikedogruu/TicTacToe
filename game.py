@@ -32,6 +32,7 @@ class Game:
         self.diff = difficulty
         self.game_over = False
         self.turn = 1  # 1 = X, -1 = O
+        self._last_bot_move = [-1, -1]
 
     # ---------------------------
     # Display
@@ -129,15 +130,25 @@ class Game:
         # print(self.vision_matrix)
 
         if self.diff == 0:
-            self.random_move()
+            move = self.random_move()
+            self._last_bot_move = move
+            return move
         elif self.diff == 1:
-            self.one_layer()
+            move = self.one_layer()
+            self._last_bot_move = move
+            return move
         elif self.diff == 2:
-            self.two_layer()
+            move = self.two_layer()
+            self._last_bot_move = move
+            return move
         elif self.diff == 3:
-            self.minimaxController()
+            move = self.minimaxController()
+            self._last_bot_move = move
+            return move
         else:
-            self.random_move()
+            move = self.random_move()
+            self._last_bot_move = move
+            return move
 
     def random_move(self) -> list[int]:
         legal = self.get_legal_moves()
@@ -340,11 +351,7 @@ class Game:
         target.game_over = self.game_over
         return target
 
-
-def main() -> None:
-    g = Game(3)  # 0 random, 1 one-layer, 2 two-layer, 3 minimax
-    g.play()
-
-
 if __name__ == "__main__":
-    main()
+    g = Game(difficulty=0)
+    g.turn = 1
+    r, c = g.bot_move()

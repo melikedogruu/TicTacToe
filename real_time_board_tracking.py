@@ -2,15 +2,32 @@ import cv2
 import numpy as np
 import tensorflow as tf
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 cell_history = defaultdict(list)
 last_process_time = 0
 PROCESS_INTERVAL = 0.4   
-
+de = deque(maxlen=8)
 from game import Game, GameError
 
 cv2.namedWindow("Live Camera Feed", cv2.WINDOW_NORMAL)
 cv2.namedWindow("Live Board with State", cv2.WINDOW_NORMAL)
+
+
+
+
+def check_is_over(g: Game, piece: str):
+    player_turn = 1 if piece == "X" else -1
+    isover = g.is_over()
+    if isover == None:
+        return
+    if isover == 0:
+        print("Tie")
+    if isover == player_turn:
+        print("You Win")
+    else:
+        print("You Lose")
+
+
 
 # =========================
 # LOAD MODEL
@@ -68,7 +85,7 @@ if not cap.isOpened():
     print("❌ Phone camera not connected")
     exit()
 
-previous_board = None
+previous_board = [["empty" for _ in range(3)] for _ in range(3)]
 
 # =========================
 # REAL-TIME LOOP
@@ -244,11 +261,17 @@ while True:
     if previous_board is None:
         previous_board = [row.copy() for row in board_matrix]
     difference_count = 0
+    n_empty = 0
+    for r in board_matrix:
+        n_empty += r.count("empty")
+    de.append(n_empty)
 
     row, col = -1, -1
     for r in range(3):
         for c in range(3):
-            if board_matrix[r][c] != previous_board[r][c]:
+            if de.count(n_empty) < 7:
+                break
+            if board_matrix[r][c] != previous_board[r][c] and board_matrix[r][c] != "empty":
                 difference_count += 1
 
     # Accept only REAL moves (1 new cell changes)
@@ -264,32 +287,36 @@ while True:
         previous_board = [row.copy() for row in board_matrix]
 
         # Player Move then Bot move TODO
-
-        if not g.game_over:
+        if g.turn == 1 and piece == "X" or g.turn == -1 and piece == "O":
+            last_bot_move = g._last_bot_move
+            if last_bot_move == [row, col]:
+                print(f"Ignoring bot's previous move: {row}, {col}")
+                continue
             g.move(piece, row, col)
-
-            isover = g.is_over()
-            if isover != None and isover != 0:
-                print(f'You Win!\n')
-                break
-            elif isover == 0:
-                print('Tie!')
-                break
-
-            r, c = g.bot_move()
-            print(r, c)
-            # TODO CHANNEL ROW COL DATA TO ARDUINO
-
-            isover = g.is_over()
-            if isover != None and isover != 0:
-                print(f'You Win!\n')
-                break
-            elif isover == 0:
-                print('Tie!')
-                break
-
+            check_is_over(g, piece)
+           
+            r,c  = g.bot_move()
+            check_is_over(g, piece)
+                
+            print(f"Bot Move: [{r}, {c}]")
         else:
-            break
+            turn = "X" if g.turn == 1 else "O"
+            print(f"Turn: {turn}\nPlayed Row Column: {row} {col}")
+            print("İllegal Move Attempted")
+            print(turn, piece)
+            continue
+
+            # g.move(piece, row, col)
+
+            # isover = g.is_over()
+            # if isover != None and isover != 0:
+            #     print(f'You Win!\n')
+            #     break
+            # elif isover == 0:
+            #     print('Tie!')
+            #     break
+
+  
 
 
 
@@ -310,6 +337,7 @@ cap = cv2.VideoCapture(PHONE_CAMERA_IP, cv2.CAP_FFMPEG)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 cv2.waitKey(1)
 cv2.destroyAllWindows()
+
 
 """
 def play(self):
