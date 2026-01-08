@@ -3,30 +3,43 @@ import numpy as np
 import tensorflow as tf
 import time
 from collections import defaultdict, deque
+
+# =========================
+# Robot Cell Mapping (Vision to Robot)
+# =========================
+ROBOT_GRID_MAP = {
+    (0, 0): 1,
+    (0, 1): 2,
+    (0, 2): 3,
+    (1, 0): 4,
+    (1, 1): 5,
+    (1, 2): 6,
+    (2, 0): 7,
+    (2, 1): 8,
+    (2, 2): 9
+}
+
 cell_history = defaultdict(list)
 last_process_time = 0
 PROCESS_INTERVAL = 0.4   
-de = deque(maxlen=8)
-from game import Game, GameError
+from game import Game
 
 cv2.namedWindow("Live Camera Feed", cv2.WINDOW_NORMAL)
 cv2.namedWindow("Live Board with State", cv2.WINDOW_NORMAL)
 
-
-
-
 def check_is_over(g: Game, piece: str):
     player_turn = 1 if piece == "X" else -1
     isover = g.is_over()
-    if isover == None:
-        return
+    if isover is None:
+        return False
     if isover == 0:
         print("Tie")
+        return True
     if isover == player_turn:
         print("You Win")
     else:
         print("You Lose")
-
+    return True
 
 
 # =========================
@@ -76,36 +89,59 @@ def preprocess_cell(cell_img):
 # =========================
 # CONNECT TO PHONE CAMERA
 # =========================
-PHONE_CAMERA_IP = "http://10.247.62.9:8080/video?dummy=param.mjpg"
+PHONE_CAMERA_IP = "http://10.249.155.67:8080/video?dummy=param.mjpg"
 
 cap = cv2.VideoCapture(PHONE_CAMERA_IP, cv2.CAP_FFMPEG)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
 if not cap.isOpened():
-    print("❌ Phone camera not connected")
+    print("Phone camera not connected!")
     exit()
 
 previous_board = [["empty" for _ in range(3)] for _ in range(3)]
 
 # =========================
-# REAL-TIME LOOP
+# Difficulty Level and Play Order Selection
 # =========================
-diff = int(input("Select Difficulty:\n0: Easy (random)\n1:Eh\n2:Medium\n3:Hard"))
-g = Game(diff)
-#TODO Valıd difficulty Check
-
-player = input("Play as :\n1- X\n2- O\nPicking O will let you play 2nd\n")
-while (not player.isdecimal() or not(1 <=int(player) <=2)):
+diff = input("Select Difficulty:\n0: Easy (random)\n1:Eh\n2:Medium\n3:Hard")
+while (diff not in ["0","1","2","3"]):
     print("Not a valid input")
-    player = input("Play as :\n1- X\n2- O\nPicking O will let you play 2nd\n")
-piece = ""
+    diff = input("Select Difficulty:\n0: Easy (random)\n1:Eh\n2:Medium\n3:Hard\n")
+g = Game(int(diff))
+
+player = input("Play order:\n1-First Player\n2-Second Player\n")
+while (not player.isdecimal() or not(1 <= int(player) <= 2)):
+    print("Not a valid input")
+    player = input("Play order:\n1-First Player\n2-Second Player\n")
+player = int(player)
+
+# =========================
+# Initialize piece variables for demo human will be O and bot X
+# =========================
+human_piece = "O"
+bot_piece = "X"
+piece = human_piece
+
+
 if player == 1:
-    piece = "X"
+    # Human (O) starts
+    g.turn = -1
+    print("Human starts as O. Robot will respond as X.")
 else:
-    piece = "O"
-    g.bot_move()
+    # Robot (X) starts
+    g.turn = 1
+    print("Robot starts as X.")
+    move = g.bot_move()
+    if not move:
+        print("No bot move returned. Game cannot start.")
+        exit()
+    rV, cV = move
+    grid_ID = ROBOT_GRID_MAP[(rV, cV)]
+    print(f"Bot Move: [{rV},{cV}], to grid number {grid_ID}")
+    # TODO: send grid_ID to actuation 
+    
 
-
+accepted_human_moves = set()
 while True:
     ret, frame = cap.read()
     #print(ret) debug line
@@ -258,69 +294,72 @@ while True:
     # =========================
     # UPDATE PRINT ONLY IF STATE IS CHANGED
     # =========================
-    if previous_board is None:
-        previous_board = [row.copy() for row in board_matrix]
-    difference_count = 0
-    n_empty = 0
-    for r in board_matrix:
-        n_empty += r.count("empty")
-    de.append(n_empty)
+    changes = []
+    for rr in range(3):
+        for cc in range(3):
+            if board_matrix[rr][cc] != previous_board[rr][cc]:
+                changes.append((rr, cc, previous_board[rr][cc], board_matrix[rr][cc]))
 
-    row, col = -1, -1
-    for r in range(3):
-        for c in range(3):
-            if de.count(n_empty) < 7:
-                break
-            if board_matrix[r][c] != previous_board[r][c] and board_matrix[r][c] != "empty":
-                difference_count += 1
+    # accept only one NEW mark (X or O) per update
+    valid_changes = [(rr, cc, old, new) for (rr, cc, old, new) in changes if new in ["X", "O"]]
 
-    # Accept only REAL moves (1 new cell changes)
-    if difference_count == 1:
-        for r in range(3):
-            for c in range(3):
-                if previous_board[r][c] != board_matrix[r][c]:
-                    row, col = r, c
-                #print(board_matrix[r][c])
-        print("\n✅ BOARD UPDATED:")
-        for r in board_matrix:
-            print(r)
-        previous_board = [row.copy() for row in board_matrix]
+    if len(valid_changes) == 1:
+        row, col, old, new = valid_changes[0]
 
-        # Player Move then Bot move TODO
-        if g.turn == 1 and piece == "X" or g.turn == -1 and piece == "O":
-            last_bot_move = g._last_bot_move
-            if last_bot_move == [row, col]:
-                print(f"Ignoring bot's previous move: {row}, {col}")
-                continue
-            g.move(piece, row, col)
-            check_is_over(g, piece)
-           
-            r,c  = g.bot_move()
-            check_is_over(g, piece)
-                
-            print(f"Bot Move: [{r}, {c}]")
-        else:
-            turn = "X" if g.turn == 1 else "O"
-            print(f"Turn: {turn}\nPlayed Row Column: {row} {col}")
-            print("İllegal Move Attempted")
-            print(turn, piece)
+        # ---- stability check ----
+        key = (row, col)
+        if cell_history[key].count(new) < 5:
             continue
 
-            # g.move(piece, row, col)
+        # ---- ignore repeated O detections (flicker protection) ----
+        if new == "O" and (row, col) in accepted_human_moves:
+            print(f"Ignoring repeated O at V[{row},{col}]")
+            continue
 
-            # isover = g.is_over()
-            # if isover != None and isover != 0:
-            #     print(f'You Win!\n')
-            #     break
-            # elif isover == 0:
-            #     print('Tie!')
-            #     break
+        print("\n✅ BOARD UPDATED:")
+        for rr in board_matrix:
+            print(rr)
 
-  
+        # update snapshot AFTER we accept stability
+        previous_board = [rr.copy() for rr in board_matrix]
 
+        # Only accept human O moves from vision (ignore robot's X detections)
+        if new != "O":
+            print(f"Ignoring detected {new} at V[{row},{col}] (robot's mark)")
+            continue
 
+        # ---- apply human move to Game ----
+        ok = g.move("O", row, col)
+        if not ok:
+            print(f"Game rejected O at V[{row},{col}] (turn={g.turn}).")
+            continue
 
+        accepted_human_moves.add((row, col))  # lock this human move
 
+        # ---- check game end after human ----
+        res = g.is_over()
+        if check_is_over(g, human_piece):
+            break
+
+        # ---- bot plays X ----
+        move = g.bot_move()
+
+        # move must be exactly [r, c]
+        if not isinstance(move, (list, tuple)) or len(move) != 2:
+            print("Bot move invalid / game over:", move)
+            break
+
+        rV, cV = move
+        grid_ID = ROBOT_GRID_MAP[(rV, cV)]
+        print(f"Bot Move: [{rV},{cV}], to grid number {grid_ID}")
+        # TODO: send grid_ID to actuation here
+
+        # ---- check game end after bot ----
+        res = g.is_over()
+        if check_is_over(g, bot_piece):
+            break
+
+    # else: no valid single move detected -> do nothing, keep showing frames
 
     # =========================
     # SHOW WINDOWS
@@ -337,46 +376,3 @@ cap = cv2.VideoCapture(PHONE_CAMERA_IP, cv2.CAP_FFMPEG)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 cv2.waitKey(1)
 cv2.destroyAllWindows()
-
-
-"""
-def play(self):
-        player = input("Play as :\n1- X\n2- O\nPicking O will let you play 2nd\n")
-        while (not player.isdecimal() or not(1 <=int(player) <=2)):
-            print("Not a valid input")
-            player = input("Play as :\n1- X\n2- O\nPicking O will let you play 2nd\n")
-        piece = ""
-        if player == "1":
-            piece = "X"
-        else:
-            piece = "O"
-        
-        if player == "2":
-            self.bot_move()
-        while not self.game_over:
-            self.draw_board()
-            move = input("Enter move as 'ROW COL'").strip().split(" ")
-            self.move(piece, int(move[0]), int(move[1]))
-            print(isover)
-            isover = self.is_over()
-            if isover != None and isover != 0:
-                print(f'You Win!\n')
-                self.draw_board()
-                return
-            elif isover == 0:
-                print('Tie!')
-                self.draw_board()
-                return
-            self.bot_move()
-            self.is_over()
-            if isover != None and isover != 0:
-                print(f'You Lose!\n')
-                self.draw_board()
-                return
-            elif isover == 0:
-                print('Tie!')
-                self.draw_board()
-                return
-        
-
-"""
